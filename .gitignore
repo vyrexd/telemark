@@ -1,0 +1,21 @@
+# Binaries
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Compiled example binary (produced by `go build ./examples/bot`)
+/bot
+/examples/bot/bot
+
+# Test / coverage
+*.test
+*.out
+coverage.*
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/
+
+.env

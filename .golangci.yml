@@ -1,0 +1,14 @@
+version: "2"
+
+linters:
+  # default = errcheck, govet, ineffassign, staticcheck, unused
+  default: standard
+  enable:
+    - misspell    # catch common English typos in comments/strings
+    - unconvert   # remove unnecessary type conversions
+    - bodyclose   # ensure HTTP response bodies are closed
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
