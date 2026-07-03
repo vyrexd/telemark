@@ -1,5 +1,6 @@
 # telemark
 
+[![CI](https://github.com/vyrexd/telemark/actions/workflows/ci.yml/badge.svg)](https://github.com/vyrexd/telemark/actions/workflows/ci.yml)
 [![Go Reference](https://pkg.go.dev/badge/github.com/vyrexd/telemark.svg)](https://pkg.go.dev/github.com/vyrexd/telemark)
 [![Go Report Card](https://goreportcard.com/badge/github.com/vyrexd/telemark)](https://goreportcard.com/report/github.com/vyrexd/telemark)
 
