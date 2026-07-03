@@ -19,6 +19,7 @@ import (
 	"net/url"
 	"os"
 	"strconv"
+	"time"
 
 	"github.com/vyrexd/telemark"
 )
@@ -26,10 +27,27 @@ import (
 // welcomeMD is plain Markdown source; it is rendered through the library like
 // any other message, so it doubles as a self-test of the converter.
 const welcomeMD = "# telemark demo\n\nSend me any Markdown and I'll reply with it " +
-	"rendered as Telegram MarkdownV2.\n\nTry sending:\n\n" +
-	"- **bold**, _italic_, ~~strike~~\n" +
-	"- a_b_c, 2+2=4, cost $5.50\n" +
-	"- [link](https://go.dev)"
+	"rendered as Telegram MarkdownV2.\n\nCommands:\n\n" +
+	"- /demo — full showcase (code blocks, tables, quotes)\n" +
+	"- /readme — this project's README, converted and auto-split"
+
+// demoMD showcases every supported construct. The fenced code block and table
+// are embedded here as literal source, so the demo does not depend on the
+// triple backticks surviving a copy-paste from a rendered README.
+const demoMD = "# telemark showcase\n\n" +
+	"Regular text with $5.50, a_b_c and 2+2=4 — all escaped safely.\n\n" +
+	"Inline `code`, **bold**, _italic_, ~~strike~~, ||spoiler||.\n\n" +
+	"```go\n" +
+	"func main() {\n" +
+	"    x := arr[0]\n" +
+	"    fmt.Println(\"hi\\n\")\n" +
+	"}\n" +
+	"```\n\n" +
+	"| Feature | Status  |\n" +
+	"| ------- | ------- |\n" +
+	"| tables  | aligned |\n" +
+	"| code    | mono    |\n\n" +
+	"> A quote with _emphasis_ and a [link](https://go.dev)"
 
 func main() {
 	token := os.Getenv("BOT_TOKEN")
@@ -49,6 +67,7 @@ func main() {
 		updates, err := getUpdates(api, offset)
 		if err != nil {
 			log.Printf("getUpdates: %v", err)
+			time.Sleep(2 * time.Second)
 			continue
 		}
 		for _, u := range updates {
@@ -62,9 +81,19 @@ func main() {
 }
 
 func handle(api string, m *message) {
+	// /readme streams the project's real README.md through the converter,
+	// split into 4096-char messages — an end-to-end test with genuine fences.
+	if m.Text == "/readme" {
+		sendReadme(api, m.Chat.ID)
+		return
+	}
+
 	src := m.Text
-	if src == "/start" {
+	switch src {
+	case "/start":
 		src = welcomeMD
+	case "/demo":
+		src = demoMD
 	}
 	reply := telemark.Convert(src)
 
@@ -82,6 +111,30 @@ func handle(api string, m *message) {
 		log.Printf("chat %d: entities also rejected: %s", m.Chat.ID, desc)
 	} else {
 		log.Printf("chat %d: entities fallback OK", m.Chat.ID)
+	}
+}
+
+// sendReadme reads README.md (path overridable via README_PATH), converts it,
+// and sends it as a sequence of MarkdownV2 messages within Telegram's limit.
+func sendReadme(api string, chat int64) {
+	path := os.Getenv("README_PATH")
+	if path == "" {
+		path = "README.md"
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		sendMarkdownV2(api, chat, "could not read "+telemark.Convert(path)+": "+telemark.Convert(err.Error()))
+		return
+	}
+	chunks := telemark.Split(string(raw), telemark.TelegramMessageLimit)
+	for i, c := range chunks {
+		ok, desc := sendMarkdownV2(api, chat, c)
+		if ok {
+			log.Printf("chat %d: readme part %d/%d OK", chat, i+1, len(chunks))
+		} else {
+			log.Printf("chat %d: readme part %d/%d REJECTED: %s", chat, i+1, len(chunks), desc)
+		}
+		time.Sleep(400 * time.Millisecond) // stay under rate limits
 	}
 }
 
