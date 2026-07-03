@@ -171,6 +171,43 @@ func TestThematicBreak(t *testing.T) {
 	}
 }
 
+func TestTableRendersAsAlignedCodeBlock(t *testing.T) {
+	md := "| Name | Age |\n| --- | --- |\n| Alice | 30 |\n| Bob | 5 |"
+	got := Convert(md)
+
+	if !strings.HasPrefix(got, "```") || !strings.HasSuffix(got, "```") {
+		t.Fatalf("table should be a fenced block, got:\n%s", got)
+	}
+	// header cell "Alice" (5 wide) means the "Name" column is padded to 5.
+	if !strings.Contains(got, "Name  | Age") {
+		t.Errorf("columns not aligned:\n%s", got)
+	}
+	// a divider row of dashes must be present
+	if !strings.Contains(got, "-+-") {
+		t.Errorf("missing divider row:\n%s", got)
+	}
+
+	// entities: the whole table is a single pre entity
+	text, ents := Entities(md)
+	if !strings.Contains(text, "Alice") {
+		t.Fatalf("table text lost: %q", text)
+	}
+	if findEntity(ents, "pre") == nil {
+		t.Errorf("table should produce a pre entity, got %+v", ents)
+	}
+}
+
+func TestNotATable(t *testing.T) {
+	// pipes without a delimiter row are ordinary (escaped) text, not a table.
+	got := Convert("a | b | c")
+	if strings.Contains(got, "```") {
+		t.Errorf("plain pipes should not become a table: %q", got)
+	}
+	if !strings.Contains(got, `\|`) {
+		t.Errorf("pipes should be escaped in normal text: %q", got)
+	}
+}
+
 func TestEmptyInput(t *testing.T) {
 	if got := Convert(""); got != "" {
 		t.Errorf("empty convert = %q", got)

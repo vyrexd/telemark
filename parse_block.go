@@ -2,6 +2,7 @@ package telemark
 
 import (
 	"strings"
+	"unicode/utf8"
 )
 
 // parseDocument parses a full Markdown document into a slice of block-level
@@ -77,6 +78,14 @@ func parseBlocks(lines []string) []*node {
 			continue
 		}
 
+		// GFM table -> rendered as an aligned monospace block, since Telegram
+		// MarkdownV2 has no table construct.
+		if tbl, next, ok := tryTable(lines, i); ok {
+			blocks = append(blocks, tbl)
+			i = next
+			continue
+		}
+
 		// list
 		if _, _, _, ok := listMarker(line); ok {
 			list, next := parseList(lines, i)
@@ -103,6 +112,9 @@ func parseBlocks(lines []string) []*node {
 				break
 			}
 			if _, _, _, ok := listMarker(l); ok {
+				break
+			}
+			if _, _, ok := tryTable(lines, i); ok {
 				break
 			}
 			para = append(para, l)
@@ -151,6 +163,133 @@ func parseList(lines []string, start int) (*node, int) {
 		})
 	}
 	return list, i
+}
+
+// tryTable detects a GFM pipe table starting at lines[start] (a header row
+// immediately followed by a delimiter row) and renders it as an aligned
+// monospace block wrapped in a nodeCodeBlock. Telegram has no table support, so
+// a fixed-width pre block is the closest faithful representation.
+func tryTable(lines []string, start int) (*node, int, bool) {
+	if start+1 >= len(lines) {
+		return nil, 0, false
+	}
+	if !strings.Contains(lines[start], "|") || !isTableDelimiterRow(lines[start+1]) {
+		return nil, 0, false
+	}
+
+	header := splitTableRow(lines[start])
+	if len(header) == 0 {
+		return nil, 0, false
+	}
+
+	rows := [][]string{header}
+	i := start + 2
+	for i < len(lines) {
+		if strings.TrimSpace(lines[i]) == "" || !strings.Contains(lines[i], "|") {
+			break
+		}
+		rows = append(rows, splitTableRow(lines[i]))
+		i++
+	}
+
+	cols := len(header)
+	widths := make([]int, cols)
+	for _, r := range rows {
+		for c := 0; c < cols; c++ {
+			w := 0
+			if c < len(r) {
+				w = utf8.RuneCountInString(r[c])
+			}
+			if w > widths[c] {
+				widths[c] = w
+			}
+		}
+	}
+
+	var b strings.Builder
+	writeRow := func(cells []string) {
+		for c := 0; c < cols; c++ {
+			if c > 0 {
+				b.WriteString(" | ")
+			}
+			cell := ""
+			if c < len(cells) {
+				cell = cells[c]
+			}
+			b.WriteString(padRight(cell, widths[c]))
+		}
+		b.WriteByte('\n')
+	}
+
+	writeRow(header)
+	for c := 0; c < cols; c++ {
+		if c > 0 {
+			b.WriteString("-+-")
+		}
+		b.WriteString(strings.Repeat("-", widths[c]))
+	}
+	b.WriteByte('\n')
+	for _, r := range rows[1:] {
+		writeRow(r)
+	}
+
+	return &node{typ: nodeCodeBlock, literal: strings.TrimRight(b.String(), "\n")}, i, true
+}
+
+// isTableDelimiterRow reports whether line is a table delimiter row such as
+// "| --- | :--: |".
+func isTableDelimiterRow(line string) bool {
+	s := strings.TrimSpace(line)
+	if !strings.Contains(s, "|") || !strings.Contains(s, "-") {
+		return false
+	}
+	for _, r := range s {
+		if r != '|' && r != '-' && r != ':' && r != ' ' {
+			return false
+		}
+	}
+	return true
+}
+
+// splitTableRow splits a "| a | b |" row into trimmed cell strings, treating a
+// backslash-escaped "\|" as literal pipe content rather than a column border.
+func splitTableRow(line string) []string {
+	s := strings.TrimSpace(line)
+	s = strings.TrimPrefix(s, "|")
+
+	var cells []string
+	var cur strings.Builder
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if c == '\\' && i+1 < len(s) {
+			if s[i+1] == '|' {
+				cur.WriteByte('|') // unescape \| into a literal pipe
+			} else {
+				cur.WriteByte('\\')
+				cur.WriteByte(s[i+1])
+			}
+			i++
+			continue
+		}
+		if c == '|' {
+			cells = append(cells, strings.TrimSpace(cur.String()))
+			cur.Reset()
+			continue
+		}
+		cur.WriteByte(c)
+	}
+	if last := strings.TrimSpace(cur.String()); last != "" || len(cells) == 0 {
+		cells = append(cells, last)
+	}
+	return cells
+}
+
+func padRight(s string, w int) string {
+	n := utf8.RuneCountInString(s)
+	if n >= w {
+		return s
+	}
+	return s + strings.Repeat(" ", w-n)
 }
 
 // codeFence reports whether line opens/closes a fenced code block, returning
